@@ -1,6 +1,6 @@
 apiVersion: v2
-name: sre-gitops-app
-description: Minimal app for GitOps demo
+name: web-app
+description: Minimal web app for GitOps demo
 type: application
 version: 0.1.0
 appVersion: "0.1.0"

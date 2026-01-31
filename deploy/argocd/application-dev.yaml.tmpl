@@ -1,14 +1,14 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: sre-gitops-app-dev
+  name: web-app-dev
   namespace: argocd
 spec:
   project: default
   source:
     repoURL: "{{REPO_URL}}"
     targetRevision: "{{REVISION}}"
-    path: charts/sre-gitops-app
+    path: charts/web-app
     helm:
       valueFiles:
         - ../values-dev.yaml

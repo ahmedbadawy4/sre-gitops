@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+
+DB="/tmp/sre_app_metrics"
+
+init_db() {
+  if [ ! -f "$DB" ]; then
+    printf "/version 0\n/metrics 0\n" > "$DB"
+  fi
+}
+
+inc() {
+  path="$1"
+  tmp="${DB}.tmp"
+  awk -v p="$path" 'BEGIN{found=0} $1==p{$2=$2+1;found=1} {print} END{if(!found) print p,1}' "$DB" > "$tmp" && mv "$tmp" "$DB"
+}
+
+init_db
+inc "/version"
+
+printf "Content-Type: application/json\r\n\r\n"
+printf '{"environment":"%s"}\n' \
+  "${ENVIRONMENT:-unknown}"

@@ -1,0 +1,24 @@
+#!/bin/sh
+set -eu
+
+DB="/tmp/sre_app_metrics"
+
+init_db() {
+  if [ ! -f "$DB" ]; then
+    printf "/version 0\n/metrics 0\n" > "$DB"
+  fi
+}
+
+inc() {
+  path="$1"
+  tmp="${DB}.tmp"
+  awk -v p="$path" 'BEGIN{found=0} $1==p{$2=$2+1;found=1} {print} END{if(!found) print p,1}' "$DB" > "$tmp" && mv "$tmp" "$DB"
+}
+
+init_db
+inc "/metrics"
+
+printf "Content-Type: text/plain; version=0.0.4\r\n\r\n"
+printf "# HELP sre_app_requests_total Total HTTP requests by path\n"
+printf "# TYPE sre_app_requests_total counter\n"
+awk '{printf "sre_app_requests_total{path=\"%s\"} %d\n", $1, $2}' "$DB"

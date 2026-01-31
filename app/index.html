@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SRE GitOps App</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      body {
+        font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+        margin: 0;
+        padding: 48px 24px;
+        background: #f6f7fb;
+        color: #0f172a;
+      }
+      .card {
+        max-width: 720px;
+        margin: 0 auto;
+        background: #ffffff;
+        border-radius: 16px;
+        padding: 32px;
+        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+      }
+      h1 {
+        margin: 0 0 16px;
+        font-size: 40px;
+        letter-spacing: -0.02em;
+      }
+      .env {
+        font-size: 22px;
+        font-weight: 600;
+        margin-bottom: 8px;
+      }
+      .meta {
+        color: #475569;
+        font-size: 15px;
+      }
+      .links {
+        margin-top: 24px;
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .links a {
+        text-decoration: none;
+        background: #0f172a;
+        color: #ffffff;
+        padding: 10px 16px;
+        border-radius: 999px;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>SRE GitOps App</h1>
+      <div class="env">Environment: <span id="env">loading...</span></div>
+      <div class="meta">Environment details loaded from /version</div>
+      <div class="links">
+        <a href="/version">/version</a>
+        <a href="/metrics">/metrics</a>
+      </div>
+    </div>
+
+    <script>
+      fetch("/version")
+        .then((response) => response.json())
+        .then((data) => {
+          document.getElementById("env").textContent = data.environment || "unknown";
+          document.getElementById("env").textContent = data.environment || "unknown";
+        })
+        .catch(() => {
+          document.getElementById("env").textContent = "unknown";
+        });
+    </script>
+  </body>
+</html>
