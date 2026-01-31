@@ -27,6 +27,9 @@ spec:
         - name: app
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           ports:
             - containerPort: {{ .Values.service.targetPort }}
               name: http
@@ -55,5 +58,8 @@ spec:
 {{ toYaml .Values.resources | nindent 12 }}
           securityContext:
 {{ toYaml .Values.securityContext | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
       terminationGracePeriodSeconds: 10
       restartPolicy: Always

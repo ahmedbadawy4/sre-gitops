@@ -1,6 +1,6 @@
 image:
   repository: sre-gitops/app
-  tag: "latest"
+  tag: \"0.1.1\"
 
 replicaCount: 1
 environment: "dev"
