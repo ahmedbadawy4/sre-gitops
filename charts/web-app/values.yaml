@@ -3,7 +3,7 @@ fullnameOverride: ""
 
 image:
   repository: sre-gitops/app
-  tag: "latest"
+  tag: "main"
   pullPolicy: IfNotPresent
 
 replicaCount: 1
