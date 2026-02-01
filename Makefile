@@ -1,6 +1,7 @@
 SHELL := /bin/bash
 
 ARGOCD_VERSION ?= v2.10.9
+ARGOCD_CHART_VERSION ?= 6.7.12
 ARGOCD_NAMESPACE ?= argocd
 APP_SERVICE ?= web-app
 APP_DEV_NAMESPACE ?= web-app-dev
@@ -10,7 +11,7 @@ APP_PROD_LOCAL_PORT ?= 8082
 REPO_URL ?=
 REVISION ?= main
 IMAGE_NAME ?= sre-gitops/app
-IMAGE_TAG ?= main
+IMAGE_TAG ?= $(shell git describe --tags --always 2>/dev/null || echo main)
 KIND_CLUSTER ?= sre-gitops
 MINIKUBE_PROFILE ?= sre-gitops
 K8S_CONTEXT ?=
@@ -73,7 +74,8 @@ install-argocd:
 	@ns=$(ARGOCD_NAMESPACE); \
 	helm repo add argo https://argoproj.github.io/argo-helm >/dev/null; \
 	helm repo update >/dev/null; \
-	helm upgrade --install argocd argo/argo-cd -n "$$ns" --create-namespace -f tools/argocd-values.yaml
+	helm upgrade --install argocd argo/argo-cd -n "$$ns" --create-namespace \
+	  --version "$(ARGOCD_CHART_VERSION)" -f tools/argocd-values.yaml
 
 argocd-password:
 	@ns=$(ARGOCD_NAMESPACE); \

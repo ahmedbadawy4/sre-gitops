@@ -54,6 +54,10 @@ git commit -m "release: main"
 git push
 ```
 
+Notes:
+- Argo CD Helm chart version is pinned via `ARGOCD_CHART_VERSION` in `Makefile`.
+- Image tags default to `git describe --tags --always` (falls back to `main`).
+
 ## Cleanup
 
 ```
