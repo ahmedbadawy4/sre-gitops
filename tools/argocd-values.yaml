@@ -1,7 +1,9 @@
 # Minimal values; override as needed.
 configs:
-  params:
-    server.insecure: true
+  rbac:
+    policy.default: role:readonly
+    policy.csv: |
+      g, admin, role:admin
 server:
   service:
     type: ClusterIP
