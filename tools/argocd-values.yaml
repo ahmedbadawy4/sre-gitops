@@ -1,0 +1,7 @@
+# Minimal values; override as needed.
+configs:
+  params:
+    server.insecure: true
+server:
+  service:
+    type: ClusterIP
