@@ -38,6 +38,8 @@ spec:
               value: "{{ .Values.service.targetPort }}"
             - name: ENVIRONMENT
               value: "{{ .Values.environment }}"
+            - name: VERSION
+              value: "{{ .Values.image.tag }}"
           readinessProbe:
             httpGet:
               path: /health

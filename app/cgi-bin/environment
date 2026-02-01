@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+
+printf "Content-Type: application/json\r\n\r\n"
+printf '{"environment":"%s"}\n' \
+  "${ENVIRONMENT:-unknown}"
