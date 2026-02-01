@@ -19,5 +19,5 @@ init_db
 inc "/version"
 
 printf "Content-Type: application/json\r\n\r\n"
-printf '{"environment":"%s"}\n' \
-  "${ENVIRONMENT:-unknown}"
+printf '{"version":"%s"}\n' \
+  "${VERSION:-main}"

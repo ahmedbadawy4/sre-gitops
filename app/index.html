@@ -55,9 +55,9 @@
   </head>
   <body>
     <div class="card">
-      <h1>SRE GitOps App</h1>
+      <h1>Web App</h1>
       <div class="env">Environment: <span id="env">loading...</span></div>
-      <div class="meta">Environment details loaded from /version</div>
+      <div class="meta">Version: <span id="version">loading...</span></div>
       <div class="links">
         <a href="/version">/version</a>
         <a href="/metrics">/metrics</a>
@@ -65,14 +65,22 @@
     </div>
 
     <script>
-      fetch("/version")
+      fetch("/environment")
         .then((response) => response.json())
         .then((data) => {
-          document.getElementById("env").textContent = data.environment || "unknown";
           document.getElementById("env").textContent = data.environment || "unknown";
         })
         .catch(() => {
           document.getElementById("env").textContent = "unknown";
+        });
+
+      fetch("/version")
+        .then((response) => response.json())
+        .then((data) => {
+          document.getElementById("version").textContent = data.version || "main";
+        })
+        .catch(() => {
+          document.getElementById("version").textContent = "main";
         });
     </script>
   </body>
