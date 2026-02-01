@@ -32,55 +32,74 @@ Use the Makefile to bootstrap Argo CD, build the app image, and deploy via GitOp
 Choose one of the following so all subsequent steps target the right cluster:
 
 ```bash
-make kind-up KIND_CLUSTER=sre-gitops
-make minikube-up MINIKUBE_PROFILE=sre-gitops
-make use-context K8S_CONTEXT=<existing-context>
+make k8s-kind-up KIND_CLUSTER=sre-gitops
+make k8s-minikube-up MINIKUBE_PROFILE=sre-gitops
+make k8s-use-context K8S_CONTEXT=<existing-context>
 ```
 
 Suggested pinned versions (optional):
 
-- Kind: `make kind-up KIND_CLUSTER=sre-gitops KIND_NODE_IMAGE=kindest/node:v1.35.0`.
-- Minikube: `make minikube-up MINIKUBE_PROFILE=sre-gitops MINIKUBE_K8S_VERSION=v1.35.0`.
+- Kind: `make k8s-kind-up KIND_CLUSTER=sre-gitops KIND_NODE_IMAGE=kindest/node:v1.35.0`.
+- Minikube: `make k8s-minikube-up MINIKUBE_PROFILE=sre-gitops MINIKUBE_K8S_VERSION=v1.35.0`.
 
 ## Quickstart (Makefile-first)
 
 ```bash
 # Verify Docker is installed and running.
-make check-docker
+make docker-check
 # Verify kubectl context.
-make check-k8s
+make k8s-check
 # Build the app image locally (default IMAGE_TAG=main).
-make build-image
+make docker-build-image
+# Install Traefik ingress controller (if not already present).
+make traefik-install
 # Install Argo CD via Helm using tools/argocd-values.yaml.
 make argocd-install
-# Install Traefik ingress controller (if not already present).
-make argocd-install-traefik
-# Deploy the dev Application (REPO_URL must be your fork).
-make deploy-dev REPO_URL=https://github.com/ahmedbadawy4/sre-gitops.git
+# Deploy the dev Application.
+make helm-deploy-dev
+# Port-forward Argo CD locally.
+make argocd-url
 ```
 
-Port-forward Argo CD + app URLs:
+Port-forward app URLs:
 
 ```bash
-make argocd-urls
+make app-urls
 ```
 
-Argo CD Ingress (Traefik, default cert):
+## Argo CD access
 
-- Add a hosts entry: `argocd.local` -> your cluster/ingress IP.
-- Access: `https://argocd.local` (browser will warn on self-signed/default cert).
-- Requires Traefik or an existing ingress class named `traefik`.
+Local (port-forward):
+
+```bash
+make argocd-url
+```
+
+Local (ingress, default/self-signed cert):
+
+- Requires Traefik (or an ingress class named `traefik`).
+- Add to `/etc/hosts` for Docker Desktop:
+  ```
+  127.0.0.1 argocd.local
+  ```
+- Access: `https://argocd.local` (browser warning is expected).
+
+Production (real domain + valid TLS):
+
+- Use a real DNS name, e.g., `argocd.example.com`.
+- Point DNS to your ingress IP / load balancer.
+- Use cert-manager + Let’s Encrypt (recommended) to issue a valid cert.
 
 ## Deploy prod
 
 ```bash
-make deploy-prod REPO_URL=https://github.com/ahmedbadawy4/sre-gitops.git
+make helm-deploy-prod
 ```
 
 ## Update image tag (GitOps flow)
 
 ```bash
-make update-image-tag ENV=dev IMAGE_TAG=main
+make helm-update-image-tag ENV=dev IMAGE_TAG=main
 git add charts/values-dev.yaml
 git commit -m "release: main"
 git push
@@ -119,15 +138,16 @@ make argocd-cleanup-port-forward
 # Delete Argo CD Application objects so Argo CD stops reconciling them.
 make argocd-cleanup-apps
 # Aggressive: deletes app namespaces and Argo CD CRDs/cluster roles (cluster-wide impact).
-make argocd-cleanup
-# Delete the Argo CD namespace (use with care if other Argo CD apps exist).
-make argocd-cleanup-argocd
+make argocd-cleanup-app
+# Delete Argo CD namespace and app resources (full cleanup).
+make cleanup
 ```
 
 ## PR checks and local linting
 
 - GitHub Actions runs Helm lint + YAML checks + Dockerfile lint on pull requests.
 - For local checks:
+  
   ```bash
   pre-commit install
   pre-commit run --all-files
