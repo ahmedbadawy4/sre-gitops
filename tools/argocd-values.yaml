@@ -7,3 +7,11 @@ configs:
 server:
   service:
     type: ClusterIP
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hosts:
+      - argocd.local
+    tls:
+      - hosts:
+          - argocd.local

@@ -13,10 +13,12 @@ REVISION ?= main
 IMAGE_NAME ?= sre-gitops/app
 IMAGE_TAG ?= $(shell git describe --tags --always 2>/dev/null || echo main)
 KIND_CLUSTER ?= sre-gitops
+KIND_NODE_IMAGE ?= kindest/node:v1.35.0
 MINIKUBE_PROFILE ?= sre-gitops
+MINIKUBE_K8S_VERSION ?= v1.35.0
 K8S_CONTEXT ?=
 
-.PHONY: help check-docker check-k8s build-image install-argocd argocd-password helm-urls deploy-dev deploy-prod update-image-tag cleanup-port-forward cleanup-argocd-apps cleanup-app cleanup-argocd kind-up minikube-up use-context
+.PHONY: help check-docker check-k8s build-image argocd-install argocd-install-traefik argocd-password argocd-urls deploy-dev deploy-prod update-image-tag argocd-cleanup-port-forward argocd-cleanup-apps argocd-cleanup argocd-cleanup-argocd kind-up minikube-up use-context
 
 help:
 	@echo "Targets:"
@@ -26,16 +28,17 @@ help:
 	@echo "  minikube-up           Start a minikube profile (MINIKUBE_PROFILE)"
 	@echo "  use-context           Switch kubectl context (K8S_CONTEXT)"
 	@echo "  build-image IMAGE_TAG=...   Build the app image locally (default: main)"
-	@echo "  install-argocd         Install Argo CD (pinned version)"
+	@echo "  argocd-install         Install Argo CD (pinned version)"
+	@echo "  argocd-install-traefik Install Traefik ingress controller"
 	@echo "  argocd-password        Show Argo CD admin password"
-	@echo "  helm-urls              Port-forward and list Argo CD + app URLs"
+	@echo "  argocd-urls            Port-forward and list Argo CD + app URLs"
 	@echo "  deploy-dev             Apply Argo CD Application for dev"
 	@echo "  deploy-prod            Apply Argo CD Application for prod"
 	@echo "  update-image-tag ENV=dev IMAGE_TAG=main  Update image tag in values"
-	@echo "  cleanup-port-forward   Stop port-forwards and remove local pid/log files"
-	@echo "  cleanup-argocd-apps    Delete Argo CD Applications (dev/prod)"
-	@echo "  cleanup-app            Delete app namespaces (dev/prod)"
-	@echo "  cleanup-argocd         Delete Argo CD namespace"
+	@echo "  argocd-cleanup-port-forward   Stop port-forwards and remove local pid/log files"
+	@echo "  argocd-cleanup-apps    Delete Argo CD Applications (dev/prod)"
+	@echo "  argocd-cleanup         Delete app namespaces and Argo CD CRDs/roles"
+	@echo "  argocd-cleanup-argocd  Delete Argo CD namespace"
 
 check-docker:
 	@command -v docker >/dev/null 2>&1 || { echo "docker not found. Install Docker Desktop."; exit 1; }
@@ -53,12 +56,12 @@ check-k8s:
 
 kind-up:
 	@command -v kind >/dev/null 2>&1 || { echo "kind not found"; exit 1; }
-	@kind get clusters | grep -qx "$(KIND_CLUSTER)" || kind create cluster --name "$(KIND_CLUSTER)"
+	@kind get clusters | grep -qx "$(KIND_CLUSTER)" || kind create cluster --name "$(KIND_CLUSTER)" --image "$(KIND_NODE_IMAGE)"
 	@kubectl config use-context "kind-$(KIND_CLUSTER)"
 
 minikube-up:
 	@command -v minikube >/dev/null 2>&1 || { echo "minikube not found"; exit 1; }
-	@minikube start -p "$(MINIKUBE_PROFILE)"
+	@minikube start -p "$(MINIKUBE_PROFILE)" --kubernetes-version="$(MINIKUBE_K8S_VERSION)"
 	@kubectl config use-context "minikube"
 
 use-context:
@@ -69,13 +72,19 @@ build-image:
 	@docker build -t "$(IMAGE_NAME):$(IMAGE_TAG)" app
 	@echo "built $(IMAGE_NAME):$(IMAGE_TAG)"
 
-install-argocd:
+argocd-install:
 	@command -v helm >/dev/null 2>&1 || { echo "helm not found"; exit 1; }
 	@ns=$(ARGOCD_NAMESPACE); \
 	helm repo add argo https://argoproj.github.io/argo-helm >/dev/null; \
 	helm repo update >/dev/null; \
 	helm upgrade --install argocd argo/argo-cd -n "$$ns" --create-namespace \
 	  --version "$(ARGOCD_CHART_VERSION)" -f tools/argocd-values.yaml
+
+argocd-install-traefik:
+	@command -v helm >/dev/null 2>&1 || { echo "helm not found"; exit 1; }
+	@helm repo add traefik https://traefik.github.io/charts >/dev/null; \
+	helm repo update >/dev/null; \
+	helm upgrade --install traefik traefik/traefik -n traefik --create-namespace
 
 argocd-password:
 	@ns=$(ARGOCD_NAMESPACE); \
@@ -86,7 +95,7 @@ argocd-password:
 	  echo "argocd initial admin secret not found (admin may be disabled or already rotated)."; \
 	fi
 
-helm-urls:
+argocd-urls:
 	@argocd_ns=$(ARGOCD_NAMESPACE); \
 	argocd_log="/tmp/argocd-port-forward.log"; \
 	argocd_pid="/tmp/argocd-port-forward.pid"; \
@@ -143,7 +152,7 @@ update-image-tag:
 		text=path.read_text(); pattern=r"(tag:\\s*)\"?[^\\n\\\"]+\"?"; new_text,count=re.subn(pattern, rf"\\1\"{tag}\"", text, flags=re.MULTILINE); \
 		( count or (_ for _ in ()).throw(SystemExit("failed to update image tag")) ); path.write_text(new_text); print(f"updated {path} to tag {tag}")'
 
-cleanup-port-forward:
+argocd-cleanup-port-forward:
 	@pids="/tmp/argocd-port-forward.pid /tmp/$(APP_DEV_NAMESPACE)-port-forward.pid /tmp/$(APP_PROD_NAMESPACE)-port-forward.pid"; \
 	for pidfile in $$pids; do \
 	  if [[ -f "$$pidfile" ]]; then \
@@ -157,13 +166,13 @@ cleanup-port-forward:
 	      /tmp/$(APP_PROD_NAMESPACE)-port-forward.log; \
 	echo "port-forward cleanup complete"
 
-cleanup-argocd-apps:
+argocd-cleanup-apps:
 	@kubectl get crd applications.argoproj.io >/dev/null 2>&1 && \
 	  kubectl -n "$(ARGOCD_NAMESPACE)" delete application web-app-dev --ignore-not-found || true
 	@kubectl get crd applications.argoproj.io >/dev/null 2>&1 && \
 	  kubectl -n "$(ARGOCD_NAMESPACE)" delete application web-app-prod --ignore-not-found || true
 
-cleanup-app: cleanup-port-forward cleanup-argocd-apps
+argocd-cleanup: argocd-cleanup-port-forward argocd-cleanup-apps
 	@kubectl delete namespace "$(APP_DEV_NAMESPACE)" --ignore-not-found
 	@kubectl delete namespace "$(APP_PROD_NAMESPACE)" --ignore-not-found
 	@kubectl delete crd applications.argoproj.io appprojects.argoproj.io applicationsets.argoproj.io --ignore-not-found
@@ -172,5 +181,5 @@ cleanup-app: cleanup-port-forward cleanup-argocd-apps
 	@kubectl delete clusterrole argocd-server --ignore-not-found
 	@kubectl delete clusterrolebinding argocd-server --ignore-not-found
 
-cleanup-argocd: cleanup-port-forward
+argocd-cleanup-argocd: argocd-cleanup-port-forward
 	@kubectl delete namespace "$(ARGOCD_NAMESPACE)" --ignore-not-found
