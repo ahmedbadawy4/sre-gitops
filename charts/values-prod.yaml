@@ -1,0 +1,14 @@
+image:
+  repository: sre-gitops/app
+  tag: "main"
+
+replicaCount: 2
+environment: "prod"
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 250m
+    memory: 192Mi
