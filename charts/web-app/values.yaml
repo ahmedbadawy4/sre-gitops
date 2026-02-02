@@ -15,6 +15,16 @@ service:
   port: 80
   targetPort: 8080
 
+ingress:
+  enabled: false
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.tls: "true"
+  hosts:
+    - host: web-app.local
+      path: /
+  tls: []
+
 resources:
   requests:
     cpu: 50m
