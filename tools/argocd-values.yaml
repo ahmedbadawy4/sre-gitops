@@ -4,6 +4,17 @@ configs:
     policy.default: role:readonly
     policy.csv: |
       g, admin, role:admin
+  params:
+    server.insecure: true
 server:
   service:
     type: ClusterIP
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.tls: "true"
+      traefik.ingress.kubernetes.io/service.serversscheme: http
+    hostname: argocd.local
+    hosts:
+      - argocd.local
