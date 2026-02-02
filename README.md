@@ -147,7 +147,7 @@ make cleanup
 
 - GitHub Actions runs Helm lint + YAML checks + Dockerfile lint on pull requests.
 - For local checks:
-  
+
   ```bash
   pre-commit install
   pre-commit run --all-files
