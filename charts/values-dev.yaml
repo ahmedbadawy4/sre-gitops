@@ -4,6 +4,15 @@ image:
 
 replicaCount: 1
 environment: "dev"
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.tls: "true"
+  hosts:
+    - host: web-app.local
+      path: /
+  tls: []
 
 resources:
   requests:
