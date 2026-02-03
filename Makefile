@@ -1,6 +1,5 @@
 SHELL := /bin/bash
 
-ARGOCD_VERSION ?= v2.10.9
 ARGOCD_CHART_VERSION ?= 6.7.12
 ARGOCD_NAMESPACE ?= argocd
 APP_SERVICE ?= web-app
@@ -8,9 +7,7 @@ APP_DEV_NAMESPACE ?= web-app-dev
 APP_PROD_NAMESPACE ?= web-app-prod
 APP_DEV_LOCAL_PORT ?= 8080
 APP_PROD_LOCAL_PORT ?= 8082
-REPO_URL ?= https://github.com/ahmedbadawy4/sre-gitops.git
-REVISION ?= main
-IMAGE_NAME ?= sre-gitops/app
+IMAGE_NAME ?= ghcr.io/ahmedbadawy4/sre-gitops
 IMAGE_TAG ?= $(shell git describe --tags --always 2>/dev/null || echo main)
 KIND_CLUSTER ?= sre-gitops
 KIND_NODE_IMAGE ?= kindest/node:v1.35.0
@@ -18,29 +15,29 @@ MINIKUBE_PROFILE ?= sre-gitops
 MINIKUBE_K8S_VERSION ?= v1.35.0
 K8S_CONTEXT ?=
 
-.PHONY: help docker-check k8s-check docker-build-image argocd-install traefik-install argocd-password argocd-urls argocd-url app-urls helm-deploy-dev helm-deploy-prod helm-update-image-tag argocd-cleanup-port-forward argocd-cleanup-apps argocd-cleanup-app cleanup k8s-kind-up k8s-minikube-up k8s-use-context
+.PHONY: help docker-check k8s-check docker-build-image argocd-install traefik-install monitoring-urls argocd-password argocd-url app-urls argocd-deploy-apps argocd-sync status lint cleanup k8s-kind-up k8s-minikube-up k8s-use-context
 
 help:
 	@echo "Targets:"
 	@echo "  docker-check          Verify Docker Desktop is installed and running"
-	@echo "  k8s-check             Verify kubectl context is docker-desktop"
-	@echo "  k8s-kind-up           Create a kind cluster (KIND_CLUSTER)"
+	@echo "  k8s-check             Verify kubectl context (kind-* or docker-desktop)"
+	@echo "  k8s-kind-up           Create a kind cluster (KIND_CLUSTER); preferred over Docker Desktop"
 	@echo "  k8s-minikube-up       Start a minikube profile (MINIKUBE_PROFILE)"
 	@echo "  k8s-use-context       Switch kubectl context (K8S_CONTEXT)"
-	@echo "  docker-build-image IMAGE_TAG=...   Build the app image locally (default: main)"
-	@echo "  argocd-install         Install Argo CD (pinned version)"
+	@echo "  docker-build-image IMAGE_TAG=...   Build and push multi-arch image to GHCR"
 	@echo "  traefik-install        Install Traefik ingress controller"
+	@echo "  argocd-install         Install Argo CD (pinned version)"
+	@echo "  monitoring-urls        Port-forward Grafana and Prometheus"
 	@echo "  argocd-password        Show Argo CD admin password"
-	@echo "  argocd-urls            Port-forward and list Argo CD + app URLs"
 	@echo "  argocd-url             Port-forward Argo CD UI only"
 	@echo "  app-urls               Port-forward app URLs (dev/prod)"
-	@echo "  helm-deploy-dev        Apply Argo CD Application for dev"
-	@echo "  helm-deploy-prod       Apply Argo CD Application for prod"
-	@echo "  helm-update-image-tag ENV=dev IMAGE_TAG=main  Update image tag in values"
-	@echo "  argocd-cleanup-port-forward   Stop port-forwards and remove local pid/log files"
-	@echo "  argocd-cleanup-apps    Delete Argo CD Applications (dev/prod)"
-	@echo "  argocd-cleanup-app     Delete app namespaces and Argo CD CRDs/roles"
-	@echo "  cleanup                Delete Argo CD namespace and app resources"
+	@echo "  argocd-deploy-apps     Apply parent Argo CD Application (app-of-apps)"
+	@echo "  argocd-sync            Sync Argo CD apps (requires argocd CLI)"
+	@echo "  status                 Show namespaces and Argo CD apps"
+	@echo "  lint                   Run pre-commit and helm lint"
+	@echo "  cleanup                Delete this repo's apps and namespaces"
+	@echo ""
+	@echo "Bootstrap from scratch (Kind): k8s-kind-up -> docker-check -> k8s-check -> docker-build-image -> traefik-install -> argocd-install -> argocd-deploy-apps -> argocd-url"
 
 docker-check:
 	@command -v docker >/dev/null 2>&1 || { echo "docker not found. Install Docker Desktop."; exit 1; }
@@ -50,10 +47,10 @@ docker-check:
 k8s-check:
 	@command -v kubectl >/dev/null 2>&1 || { echo "kubectl not found"; exit 1; }
 	@ctx=$$(kubectl config current-context); \
-	if [[ "$$ctx" != "docker-desktop" ]]; then \
-	  echo "warning: context is '$$ctx' (expected docker-desktop)"; \
-	else \
+	if [[ "$$ctx" = "docker-desktop" ]] || [[ "$$ctx" = kind-* ]]; then \
 	  echo "kubectl context ok ($$ctx)"; \
+	else \
+	  echo "warning: context is '$$ctx' (expected kind-$(KIND_CLUSTER) or docker-desktop)"; \
 	fi
 
 k8s-kind-up:
@@ -71,8 +68,8 @@ k8s-use-context:
 	@kubectl config use-context "$(K8S_CONTEXT)"
 
 docker-build-image:
-	@docker build -t "$(IMAGE_NAME):$(IMAGE_TAG)" app
-	@echo "built $(IMAGE_NAME):$(IMAGE_TAG)"
+	@docker buildx build --platform linux/amd64,linux/arm64 \
+	  -t "$(IMAGE_NAME):$(IMAGE_TAG)" --push app
 
 argocd-install:
 	@command -v helm >/dev/null 2>&1 || { echo "helm not found"; exit 1; }
@@ -86,7 +83,13 @@ traefik-install:
 	@command -v helm >/dev/null 2>&1 || { echo "helm not found"; exit 1; }
 	@helm repo add traefik https://traefik.github.io/charts >/dev/null; \
 	helm repo update >/dev/null; \
-	helm upgrade --install traefik traefik/traefik -n traefik --create-namespace
+	helm upgrade --install traefik traefik/traefik -n traefik --create-namespace -f tools/traefik-values.yaml
+
+monitoring-urls:
+	@kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80 >/tmp/grafana-port-forward.log 2>&1 & \
+	kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090 >/tmp/prometheus-port-forward.log 2>&1 & \
+	echo "Grafana: http://localhost:3000"; \
+	echo "Prometheus: http://localhost:9090"
 
 argocd-password:
 	@ns=$(ARGOCD_NAMESPACE); \
@@ -97,125 +100,47 @@ argocd-password:
 	  echo "argocd initial admin secret not found (admin may be disabled or already rotated)."; \
 	fi
 
-argocd-urls:
-	@argocd_ns=$(ARGOCD_NAMESPACE); \
-	argocd_log="/tmp/argocd-port-forward.log"; \
-	argocd_pid="/tmp/argocd-port-forward.pid"; \
-	kubectl -n "$$argocd_ns" port-forward svc/argocd-server 8081:443 >"$$argocd_log" 2>&1 & \
-	echo $$! > "$$argocd_pid"; \
-	app_dev_ns=$(APP_DEV_NAMESPACE); \
-	app_dev_log="/tmp/$(APP_DEV_NAMESPACE)-port-forward.log"; \
-	app_dev_pid="/tmp/$(APP_DEV_NAMESPACE)-port-forward.pid"; \
-	if kubectl -n "$$app_dev_ns" get svc "$(APP_SERVICE)" >/dev/null 2>&1; then \
-	  kubectl -n "$$app_dev_ns" port-forward svc/$(APP_SERVICE) $(APP_DEV_LOCAL_PORT):80 >"$$app_dev_log" 2>&1 & \
-	  echo $$! > "$$app_dev_pid"; \
-	else \
-	  echo "warning: svc/$(APP_SERVICE) not found in $$app_dev_ns (skipping dev app port-forward)"; \
-	fi; \
-	app_prod_ns=$(APP_PROD_NAMESPACE); \
-	app_prod_log="/tmp/$(APP_PROD_NAMESPACE)-port-forward.log"; \
-	app_prod_pid="/tmp/$(APP_PROD_NAMESPACE)-port-forward.pid"; \
-	if kubectl -n "$$app_prod_ns" get svc "$(APP_SERVICE)" >/dev/null 2>&1; then \
-	  kubectl -n "$$app_prod_ns" port-forward svc/$(APP_SERVICE) $(APP_PROD_LOCAL_PORT):80 >"$$app_prod_log" 2>&1 & \
-	  echo $$! > "$$app_prod_pid"; \
-	else \
-	  echo "warning: svc/$(APP_SERVICE) not found in $$app_prod_ns (skipping prod app port-forward)"; \
-	fi; \
-	echo "Argo CD UI: https://localhost:8081"; \
-	echo "App (dev):  http://localhost:$(APP_DEV_LOCAL_PORT)"; \
-	echo "App (dev) metrics:  http://localhost:$(APP_DEV_LOCAL_PORT)/metrics"; \
-	echo "App (prod): http://localhost:$(APP_PROD_LOCAL_PORT)"; \
-	echo "App (prod) metrics: http://localhost:$(APP_PROD_LOCAL_PORT)/metrics"; \
-	echo "port-forward pids: $$(cat $$argocd_pid 2>/dev/null || echo '?') $$(cat $$app_dev_pid 2>/dev/null || echo '?') $$(cat $$app_prod_pid 2>/dev/null || echo '?')"
-
 argocd-url:
-	@argocd_ns=$(ARGOCD_NAMESPACE); \
-	argocd_log="/tmp/argocd-port-forward.log"; \
-	argocd_pid="/tmp/argocd-port-forward.pid"; \
-	kubectl -n "$$argocd_ns" port-forward svc/argocd-server 8081:443 >"$$argocd_log" 2>&1 & \
-	echo $$! > "$$argocd_pid"; \
-	echo "Argo CD UI: https://localhost:8081"; \
-	echo "port-forward pid: $$(cat $$argocd_pid 2>/dev/null || echo '?')"
+	@kubectl -n argocd port-forward svc/argocd-server 8081:443 >/tmp/argocd-port-forward.log 2>&1 & \
+	echo "Argo CD UI: https://localhost:8081"
 
 app-urls:
-	@app_dev_ns=$(APP_DEV_NAMESPACE); \
-	app_dev_log="/tmp/$(APP_DEV_NAMESPACE)-port-forward.log"; \
-	app_dev_pid="/tmp/$(APP_DEV_NAMESPACE)-port-forward.pid"; \
-	if kubectl -n "$$app_dev_ns" get svc "$(APP_SERVICE)" >/dev/null 2>&1; then \
-	  kubectl -n "$$app_dev_ns" port-forward svc/$(APP_SERVICE) $(APP_DEV_LOCAL_PORT):80 >"$$app_dev_log" 2>&1 & \
-	  echo $$! > "$$app_dev_pid"; \
-	else \
-	  echo "warning: svc/$(APP_SERVICE) not found in $$app_dev_ns (skipping dev app port-forward)"; \
-	fi; \
-	app_prod_ns=$(APP_PROD_NAMESPACE); \
-	app_prod_log="/tmp/$(APP_PROD_NAMESPACE)-port-forward.log"; \
-	app_prod_pid="/tmp/$(APP_PROD_NAMESPACE)-port-forward.pid"; \
-	if kubectl -n "$$app_prod_ns" get svc "$(APP_SERVICE)" >/dev/null 2>&1; then \
-	  kubectl -n "$$app_prod_ns" port-forward svc/$(APP_SERVICE) $(APP_PROD_LOCAL_PORT):80 >"$$app_prod_log" 2>&1 & \
-	  echo $$! > "$$app_prod_pid"; \
-	else \
-	  echo "warning: svc/$(APP_SERVICE) not found in $$app_prod_ns (skipping prod app port-forward)"; \
-	fi; \
+	@kubectl -n $(APP_DEV_NAMESPACE) port-forward svc/$(APP_SERVICE) $(APP_DEV_LOCAL_PORT):80 >/tmp/$(APP_DEV_NAMESPACE)-port-forward.log 2>&1 & \
+	kubectl -n $(APP_PROD_NAMESPACE) port-forward svc/$(APP_SERVICE) $(APP_PROD_LOCAL_PORT):80 >/tmp/$(APP_PROD_NAMESPACE)-port-forward.log 2>&1 & \
 	echo "App (dev):  http://localhost:$(APP_DEV_LOCAL_PORT)"; \
 	echo "App (dev) metrics:  http://localhost:$(APP_DEV_LOCAL_PORT)/metrics"; \
 	echo "App (prod): http://localhost:$(APP_PROD_LOCAL_PORT)"; \
-	echo "App (prod) metrics: http://localhost:$(APP_PROD_LOCAL_PORT)/metrics"; \
-	echo "port-forward pids: $$(cat $$app_dev_pid 2>/dev/null || echo '?') $$(cat $$app_prod_pid 2>/dev/null || echo '?')"
+	echo "App (prod) metrics: http://localhost:$(APP_PROD_LOCAL_PORT)/metrics"
 
-helm-deploy-dev:
-	@if [[ -z "$(REPO_URL)" ]]; then echo "REPO_URL is required"; exit 1; fi
-	@ns=$(ARGOCD_NAMESPACE); \
-	template="deploy/argocd/application-dev.yaml.tmpl"; \
-	if [[ ! -f "$$template" ]]; then echo "missing template: $$template" >&2; exit 1; fi; \
-	TEMPLATE_PATH="$$template" REPO_URL="$(REPO_URL)" REVISION="$(REVISION)" \
-	python3 -c 'from pathlib import Path; import os; text=Path(os.environ["TEMPLATE_PATH"]).read_text(); print(text.replace("{{REPO_URL}}", os.environ["REPO_URL"]).replace("{{REVISION}}", os.environ.get("REVISION","main")))' \
-	| kubectl apply -n "$$ns" -f -
+argocd-deploy-apps:
+	@kubectl apply -n argocd -f deploy/argocd/applications.yaml
 
-helm-deploy-prod:
-	@if [[ -z "$(REPO_URL)" ]]; then echo "REPO_URL is required"; exit 1; fi
-	@ns=$(ARGOCD_NAMESPACE); \
-	template="deploy/argocd/application-prod.yaml.tmpl"; \
-	if [[ ! -f "$$template" ]]; then echo "missing template: $$template" >&2; exit 1; fi; \
-	TEMPLATE_PATH="$$template" REPO_URL="$(REPO_URL)" REVISION="$(REVISION)" \
-	python3 -c 'from pathlib import Path; import os; text=Path(os.environ["TEMPLATE_PATH"]).read_text(); print(text.replace("{{REPO_URL}}", os.environ["REPO_URL"]).replace("{{REVISION}}", os.environ.get("REVISION","main")))' \
-	| kubectl apply -n "$$ns" -f -
 
-helm-update-image-tag:
-	@if [[ -z "$(ENV)" || -z "$(IMAGE_TAG)" ]]; then echo "usage: make helm-update-image-tag ENV=dev IMAGE_TAG=main"; exit 1; fi
-	@ENVIRONMENT="$(ENV)" IMAGE_TAG="$(IMAGE_TAG)" \
-	python3 -c 'from pathlib import Path; import os,re; env=os.environ["ENVIRONMENT"]; tag=os.environ["IMAGE_TAG"]; path=Path(f"charts/values-{env}.yaml"); \
-		( path.exists() or (_ for _ in ()).throw(SystemExit(f"unknown environment: {env}")) ); \
-		text=path.read_text(); pattern=r"(tag:\\s*)\"?[^\\n\\\"]+\"?"; new_text,count=re.subn(pattern, rf"\\1\"{tag}\"", text, flags=re.MULTILINE); \
-		( count or (_ for _ in ()).throw(SystemExit("failed to update image tag")) ); path.write_text(new_text); print(f"updated {path} to tag {tag}")'
+argocd-sync:
+	@command -v argocd >/dev/null 2>&1 || { echo "argocd CLI not found"; exit 1; }
+	@argocd app sync sre-gitops-apps || true
 
-argocd-cleanup-port-forward:
-	@pids="/tmp/argocd-port-forward.pid /tmp/$(APP_DEV_NAMESPACE)-port-forward.pid /tmp/$(APP_PROD_NAMESPACE)-port-forward.pid"; \
-	for pidfile in $$pids; do \
-	  if [[ -f "$$pidfile" ]]; then \
-	    pid=$$(cat "$$pidfile" 2>/dev/null || true); \
-	    if [[ -n "$$pid" ]]; then kill "$$pid" >/dev/null 2>&1 || true; fi; \
-	    rm -f "$$pidfile"; \
-	  fi; \
-	done; \
-	rm -f /tmp/argocd-port-forward.log \
+status:
+	@kubectl get ns | grep -E "argocd|web-app-dev|web-app-prod|monitoring" || true
+	@kubectl -n argocd get applications.argoproj.io 2>/dev/null || true
+
+lint:
+	@command -v pre-commit >/dev/null 2>&1 || { echo "pre-commit not found"; exit 1; }
+	@pre-commit run --all-files
+	@helm lint charts/web-app
+
+cleanup:
+	@rm -f /tmp/argocd-port-forward.log \
 	      /tmp/$(APP_DEV_NAMESPACE)-port-forward.log \
-	      /tmp/$(APP_PROD_NAMESPACE)-port-forward.log; \
-	echo "port-forward cleanup complete"
-
-argocd-cleanup-apps:
-	@kubectl get crd applications.argoproj.io >/dev/null 2>&1 && \
-	  kubectl -n "$(ARGOCD_NAMESPACE)" delete application web-app-dev --ignore-not-found || true
-	@kubectl get crd applications.argoproj.io >/dev/null 2>&1 && \
-	  kubectl -n "$(ARGOCD_NAMESPACE)" delete application web-app-prod --ignore-not-found || true
-
-argocd-cleanup-app: argocd-cleanup-port-forward argocd-cleanup-apps
+	      /tmp/$(APP_PROD_NAMESPACE)-port-forward.log \
+	      /tmp/grafana-port-forward.log \
+	      /tmp/prometheus-port-forward.log
+	@kubectl get crd applications.argoproj.io >/dev/null 2>&1 && ( \
+	  kubectl -n "$(ARGOCD_NAMESPACE)" delete application sre-gitops-apps --ignore-not-found; \
+	  kubectl -n "$(ARGOCD_NAMESPACE)" delete application web-app-dev --ignore-not-found; \
+	  kubectl -n "$(ARGOCD_NAMESPACE)" delete application web-app-prod --ignore-not-found; \
+	  kubectl -n "$(ARGOCD_NAMESPACE)" delete application monitoring --ignore-not-found; \
+	) || true
 	@kubectl delete namespace "$(APP_DEV_NAMESPACE)" --ignore-not-found
 	@kubectl delete namespace "$(APP_PROD_NAMESPACE)" --ignore-not-found
-	@kubectl delete crd applications.argoproj.io appprojects.argoproj.io applicationsets.argoproj.io --ignore-not-found
-	@kubectl delete clusterrole argocd-application-controller --ignore-not-found
-	@kubectl delete clusterrolebinding argocd-application-controller --ignore-not-found
-	@kubectl delete clusterrole argocd-server --ignore-not-found
-	@kubectl delete clusterrolebinding argocd-server --ignore-not-found
-
-cleanup: argocd-cleanup-app
-	@kubectl delete namespace "$(ARGOCD_NAMESPACE)" --ignore-not-found
+	@kubectl delete namespace monitoring --ignore-not-found

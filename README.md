@@ -63,6 +63,10 @@ make argocd-deploy-apps
 make argocd-url
 ```
 
+After `argocd-deploy-apps`, the Argo CD Applications view should show all four apps (monitoring, sre-gitops-apps, web-app-dev, web-app-prod) Healthy and Synced:
+
+![Argo CD applications](docs/expected-results/argocd-applications.png)
+
 Port-forward app URLs:
 
 ```bash
@@ -73,6 +77,14 @@ Web app ingress (default cert):
 
 - Dev: `https://web-app-dev.local` (add `127.0.0.1 web-app-dev.local` to `/etc/hosts`).
 - Prod: `https://web-app-prod.local` (add `127.0.0.1 web-app-prod.local` to `/etc/hosts`).
+
+After adding the hosts entry and opening the URL in a browser, the dev app page shows Environment: dev, Version: main, and links to `/version` and `/metrics`:
+
+![Web app dev](docs/expected-results/web-app-dev.png)
+
+The prod app page shows Environment: prod, the version from `charts/values-prod.yaml` (e.g. main or a Git tag), and the same endpoints:
+
+![Web app prod](docs/expected-results/web-app-prod.png)
 
 Monitoring (Grafana + Prometheus):
 
