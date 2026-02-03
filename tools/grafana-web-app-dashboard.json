@@ -1,0 +1,22 @@
+{
+  "title": "Web App Overview",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "HTTP Requests (by path)",
+      "datasource": { "type": "prometheus", "uid": "PROMETHEUS" },
+      "targets": [
+        {
+          "expr": "sre_app_requests_total",
+          "legendFormat": "{{path}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 9 }
+    }
+  ]
+}
