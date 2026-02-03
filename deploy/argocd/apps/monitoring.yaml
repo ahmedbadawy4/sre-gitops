@@ -25,6 +25,11 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
+  ignoreDifferences:
+    - group: apps
+      kind: DaemonSet
+      name: monitoring-prometheus-node-exporter
+      namespace: monitoring
   syncPolicy:
     automated:
       prune: false
