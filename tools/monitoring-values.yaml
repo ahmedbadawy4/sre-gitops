@@ -1,0 +1,7 @@
+# Minimal local monitoring stack values.
+grafana:
+  service:
+    type: ClusterIP
+prometheus:
+  service:
+    type: ClusterIP
