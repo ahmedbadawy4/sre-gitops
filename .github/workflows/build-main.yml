@@ -36,3 +36,12 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: |
             ghcr.io/${{ github.repository }}:main
+
+      # - name: Set kubeconfig (placeholder)
+      #   run: |
+      #     echo "${KUBECONFIG_B64}" | base64 -d > kubeconfig
+      #   env:
+      #     KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
+      #
+      # - name: Apply app-of-apps (placeholder)
+      #   run: kubectl --kubeconfig kubeconfig apply -n argocd -f deploy/argocd/applications.yaml
