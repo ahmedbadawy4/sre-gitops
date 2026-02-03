@@ -6,8 +6,8 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: "{{REPO_URL}}"
-    targetRevision: "{{REVISION}}"
+    repoURL: "https://github.com/ahmedbadawy4/sre-gitops.git"
+    targetRevision: "main"
     path: charts/web-app
     helm:
       valueFiles:
