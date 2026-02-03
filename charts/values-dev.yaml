@@ -10,7 +10,7 @@ ingress:
   annotations:
     traefik.ingress.kubernetes.io/router.tls: "true"
   hosts:
-    - host: web-app.local
+    - host: web-app-dev.local
       path: /
   tls: []
 
