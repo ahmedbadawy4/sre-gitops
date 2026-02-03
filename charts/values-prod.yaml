@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/ahmedbadawy4/sre-gitops
-  tag: "main"
+  tag: "v0.0.2"
 
 replicaCount: 2
 environment: "prod"
