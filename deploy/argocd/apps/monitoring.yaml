@@ -10,6 +10,8 @@ spec:
     chart: kube-prometheus-stack
     targetRevision: "56.14.0"
     helm:
+      releaseName: monitoring
+      skipCrds: false
       values: |
         # Minimal local monitoring stack values.
         prometheus-node-exporter:
@@ -30,3 +32,4 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+      - Replace=true
