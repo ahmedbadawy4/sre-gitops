@@ -12,6 +12,8 @@ spec:
     helm:
       values: |
         # Minimal local monitoring stack values.
+        nodeExporter:
+          enabled: false
         grafana:
           service:
             type: ClusterIP
