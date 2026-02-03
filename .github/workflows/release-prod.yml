@@ -46,22 +46,22 @@ jobs:
       # - name: Apply app-of-apps (placeholder)
       #   run: kubectl --kubeconfig kubeconfig apply -n argocd -f deploy/argocd/applications.yaml
 
-      - name: Set prod image tag from git tag
+      - name: Bump prod image tag and push
         run: |
           TAG="${GITHUB_REF_NAME}"
           PROD_FILE="charts/values-prod.yaml"
+          BRANCH="${{ github.event.repository.default_branch }}"
           if [[ ! -f "$PROD_FILE" ]]; then
             echo "missing file: $PROD_FILE" >&2
             exit 1
           fi
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git fetch origin "$BRANCH"
+          git checkout "$BRANCH"
           sed -i.bak -E "s/(tag:[[:space:]]*)\"?[^\"[:space:]]+\"?/\\1\"${TAG}\"/" "$PROD_FILE"
           rm -f "${PROD_FILE}.bak"
           echo "updated $PROD_FILE to tag ${TAG}"
-
-      - name: Commit and push
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add charts/values-prod.yaml
-          git commit -m "chore: bump image tag to ${GITHUB_REF_NAME}" || exit 0
-          git push
+          git add "$PROD_FILE"
+          git commit -m "chore: bump image tag to ${TAG}" || exit 0
+          git push origin "$BRANCH"
