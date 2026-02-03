@@ -1,5 +1,5 @@
 image:
-  repository: sre-gitops/app
+  repository: ghcr.io/ahmedbadawy4/sre-gitops
   tag: "main"
 
 replicaCount: 2

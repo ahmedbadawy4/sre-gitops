@@ -2,7 +2,7 @@ nameOverride: ""
 fullnameOverride: ""
 
 image:
-  repository: sre-gitops/app
+  repository: ghcr.io/ahmedbadawy4/sre-gitops
   tag: "main"
   pullPolicy: IfNotPresent
 
