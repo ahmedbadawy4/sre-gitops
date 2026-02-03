@@ -13,9 +13,6 @@ spec:
       releaseName: monitoring
       skipCrds: false
       values: |
-        # Minimal local monitoring stack values.
-        prometheus-node-exporter:
-          enabled: false
         grafana:
           service:
             type: ClusterIP
@@ -25,11 +22,6 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
-  ignoreDifferences:
-    - group: apps
-      kind: DaemonSet
-      name: monitoring-prometheus-node-exporter
-      namespace: monitoring
   syncPolicy:
     automated:
       prune: false
