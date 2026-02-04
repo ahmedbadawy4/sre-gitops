@@ -1,0 +1,15 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: web-app-dev
+  namespace: argocd
+spec:
+  description: Dev applications for sre-gitops
+  sourceRepos:
+    - https://github.com/ahmedbadawy4/sre-gitops.git
+  destinations:
+    - namespace: web-app-dev
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: '*'
+      kind: '*'

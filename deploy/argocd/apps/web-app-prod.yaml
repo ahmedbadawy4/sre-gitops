@@ -4,7 +4,7 @@ metadata:
   name: web-app-prod
   namespace: argocd
 spec:
-  project: default
+  project: web-app-prod
   source:
     repoURL: "https://github.com/ahmedbadawy4/sre-gitops.git"
     targetRevision: "main"

@@ -1,0 +1,15 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: web-app-prod
+  namespace: argocd
+spec:
+  description: Prod applications for sre-gitops
+  sourceRepos:
+    - https://github.com/ahmedbadawy4/sre-gitops.git
+  destinations:
+    - namespace: web-app-prod
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: '*'
+      kind: '*'

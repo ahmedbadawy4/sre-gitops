@@ -15,29 +15,58 @@ MINIKUBE_PROFILE ?= sre-gitops
 MINIKUBE_K8S_VERSION ?= v1.35.0
 K8S_CONTEXT ?=
 
-.PHONY: help docker-check k8s-check docker-build-image argocd-install traefik-install monitoring-urls argocd-password argocd-url app-urls argocd-deploy-apps argocd-sync status lint cleanup k8s-kind-up k8s-minikube-up k8s-use-context
+.DEFAULT_GOAL := help
+
+.PHONY: help tools-check docker-check k8s-check docker-build-image docker-build-image-local \
+	docker-build-image-kind k8s-kind-up k8s-minikube-up k8s-use-context traefik-install \
+	argocd-install argocd-deploy-apps argocd-sync argocd-password argocd-url app-urls \
+	monitoring-urls status cleanup-port-forwards cleanup-apps argocd-cleanup-port-forward \
+	argocd-cleanup-apps cleanup lint bootstrap-kind bootstrap-minikube up down pf-stop \
+	apps-delete kind-load
 
 help:
 	@echo "Targets:"
+	@echo "  tools-check           Verify required CLIs are installed"
 	@echo "  docker-check          Verify Docker Desktop is installed and running"
-	@echo "  k8s-check             Verify kubectl context (kind-* or docker-desktop)"
+	@echo "  k8s-check             Verify kubectl context (kind-*, docker-desktop, or minikube)"
 	@echo "  k8s-kind-up           Create a kind cluster (KIND_CLUSTER); preferred over Docker Desktop"
 	@echo "  k8s-minikube-up       Start a minikube profile (MINIKUBE_PROFILE)"
 	@echo "  k8s-use-context       Switch kubectl context (K8S_CONTEXT)"
 	@echo "  docker-build-image IMAGE_TAG=...   Build and push multi-arch image to GHCR"
+	@echo "  docker-build-image-local IMAGE_TAG=...   Build local image (no push)"
+	@echo "  docker-build-image-kind IMAGE_TAG=...    Build local image and load into kind"
+	@echo "  kind-load IMAGE_TAG=...            Load local image into kind"
 	@echo "  traefik-install        Install Traefik ingress controller"
 	@echo "  argocd-install         Install Argo CD (pinned version)"
-	@echo "  monitoring-urls        Port-forward Grafana and Prometheus"
+	@echo "  argocd-deploy-apps     Apply parent Argo CD Application (app-of-apps)"
+	@echo "  argocd-sync            Sync Argo CD apps (requires argocd CLI)"
 	@echo "  argocd-password        Show Argo CD admin password"
 	@echo "  argocd-url             Port-forward Argo CD UI only"
 	@echo "  app-urls               Port-forward app URLs (dev/prod)"
-	@echo "  argocd-deploy-apps     Apply parent Argo CD Application (app-of-apps)"
-	@echo "  argocd-sync            Sync Argo CD apps (requires argocd CLI)"
+	@echo "  monitoring-urls        Port-forward Grafana and Prometheus"
 	@echo "  status                 Show namespaces and Argo CD apps"
-	@echo "  lint                   Run pre-commit and helm lint"
+	@echo "  cleanup-port-forwards  Stop local port-forward processes and remove temp files"
+	@echo "  cleanup-apps           Delete Argo CD Applications for this repo"
+	@echo "  argocd-cleanup-port-forward  Alias for cleanup-port-forwards"
+	@echo "  argocd-cleanup-apps          Alias for cleanup-apps"
+	@echo "  bootstrap-kind        One-shot local setup on kind"
+	@echo "  bootstrap-minikube    One-shot local setup on minikube"
+	@echo "  up                    Deploy apps via Argo CD (GitOps)"
+	@echo "  down                  Remove apps and namespaces (cleanup)"
+	@echo "  pf-stop               Stop port-forwards"
+	@echo "  apps-delete           Delete Argo CD Applications for this repo"
 	@echo "  cleanup                Delete this repo's apps and namespaces"
+	@echo "  lint                   Run pre-commit and helm lint"
 	@echo ""
-	@echo "Bootstrap from scratch (Kind): k8s-kind-up -> docker-check -> k8s-check -> docker-build-image -> traefik-install -> argocd-install -> argocd-deploy-apps -> argocd-url"
+	@echo "Bootstrap from scratch (Kind): tools-check -> k8s-kind-up -> docker-check -> k8s-check -> docker-build-image -> traefik-install -> argocd-install -> argocd-deploy-apps -> argocd-url"
+
+# Preflight checks
+
+tools-check:
+	@command -v kubectl >/dev/null 2>&1 || { echo "kubectl not found"; exit 1; }
+	@command -v docker >/dev/null 2>&1 || { echo "docker not found. Install Docker Desktop."; exit 1; }
+	@command -v helm >/dev/null 2>&1 || { echo "helm not found"; exit 1; }
+	@echo "tools ok"
 
 docker-check:
 	@command -v docker >/dev/null 2>&1 || { echo "docker not found. Install Docker Desktop."; exit 1; }
@@ -47,11 +76,13 @@ docker-check:
 k8s-check:
 	@command -v kubectl >/dev/null 2>&1 || { echo "kubectl not found"; exit 1; }
 	@ctx=$$(kubectl config current-context); \
-	if [[ "$$ctx" = "docker-desktop" ]] || [[ "$$ctx" = kind-* ]]; then \
+	if [[ "$$ctx" = "docker-desktop" ]] || [[ "$$ctx" = kind-* ]] || [[ "$$ctx" = "minikube" ]]; then \
 	  echo "kubectl context ok ($$ctx)"; \
 	else \
-	  echo "warning: context is '$$ctx' (expected kind-$(KIND_CLUSTER) or docker-desktop)"; \
+	  echo "warning: context is '$$ctx' (expected kind-$(KIND_CLUSTER), docker-desktop, or minikube)"; \
 	fi
+
+# Cluster lifecycle
 
 k8s-kind-up:
 	@command -v kind >/dev/null 2>&1 || { echo "kind not found"; exit 1; }
@@ -67,9 +98,31 @@ k8s-use-context:
 	@if [[ -z "$(K8S_CONTEXT)" ]]; then echo "K8S_CONTEXT is required"; exit 1; fi
 	@kubectl config use-context "$(K8S_CONTEXT)"
 
+# Build / publish
+
 docker-build-image:
 	@docker buildx build --platform linux/amd64,linux/arm64 \
 	  -t "$(IMAGE_NAME):$(IMAGE_TAG)" --push app
+
+docker-build-image-local:
+	@docker build -t "$(IMAGE_NAME):$(IMAGE_TAG)" app
+
+docker-build-image-kind:
+	@command -v kind >/dev/null 2>&1 || { echo "kind not found"; exit 1; }
+	@docker build -t "$(IMAGE_NAME):$(IMAGE_TAG)" app
+	@kind load docker-image "$(IMAGE_NAME):$(IMAGE_TAG)" --name "$(KIND_CLUSTER)"
+
+kind-load:
+	@command -v kind >/dev/null 2>&1 || { echo "kind not found"; exit 1; }
+	@kind load docker-image "$(IMAGE_NAME):$(IMAGE_TAG)" --name "$(KIND_CLUSTER)"
+
+# Platform installs
+
+traefik-install:
+	@command -v helm >/dev/null 2>&1 || { echo "helm not found"; exit 1; }
+	@helm repo add traefik https://traefik.github.io/charts >/dev/null; \
+	helm repo update >/dev/null; \
+	helm upgrade --install traefik traefik/traefik -n traefik --create-namespace -f tools/traefik-values.yaml
 
 argocd-install:
 	@command -v helm >/dev/null 2>&1 || { echo "helm not found"; exit 1; }
@@ -79,17 +132,16 @@ argocd-install:
 	helm upgrade --install argocd argo/argo-cd -n "$$ns" --create-namespace \
 	  --version "$(ARGOCD_CHART_VERSION)" -f tools/argocd-values.yaml
 
-traefik-install:
-	@command -v helm >/dev/null 2>&1 || { echo "helm not found"; exit 1; }
-	@helm repo add traefik https://traefik.github.io/charts >/dev/null; \
-	helm repo update >/dev/null; \
-	helm upgrade --install traefik traefik/traefik -n traefik --create-namespace -f tools/traefik-values.yaml
+# GitOps deploy
 
-monitoring-urls:
-	@kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80 >/tmp/grafana-port-forward.log 2>&1 & \
-	kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090 >/tmp/prometheus-port-forward.log 2>&1 & \
-	echo "Grafana: http://localhost:3000"; \
-	echo "Prometheus: http://localhost:9090"
+argocd-deploy-apps:
+	@kubectl apply -n "$(ARGOCD_NAMESPACE)" -f deploy/argocd/applications.yaml
+
+argocd-sync:
+	@command -v argocd >/dev/null 2>&1 || { echo "argocd CLI not found"; exit 1; }
+	@argocd app sync sre-gitops-apps || true
+
+# Access / UX
 
 argocd-password:
 	@ns=$(ARGOCD_NAMESPACE); \
@@ -101,46 +153,80 @@ argocd-password:
 	fi
 
 argocd-url:
-	@kubectl -n argocd port-forward svc/argocd-server 8081:443 >/tmp/argocd-port-forward.log 2>&1 & \
+	@kubectl -n "$(ARGOCD_NAMESPACE)" port-forward svc/argocd-server 8081:443 >/tmp/argocd-port-forward.log 2>&1 & \
+	echo $$! >/tmp/argocd-port-forward.pid; \
 	echo "Argo CD UI: https://localhost:8081"
 
 app-urls:
 	@kubectl -n $(APP_DEV_NAMESPACE) port-forward svc/$(APP_SERVICE) $(APP_DEV_LOCAL_PORT):80 >/tmp/$(APP_DEV_NAMESPACE)-port-forward.log 2>&1 & \
+	echo $$! >/tmp/$(APP_DEV_NAMESPACE)-port-forward.pid; \
 	kubectl -n $(APP_PROD_NAMESPACE) port-forward svc/$(APP_SERVICE) $(APP_PROD_LOCAL_PORT):80 >/tmp/$(APP_PROD_NAMESPACE)-port-forward.log 2>&1 & \
+	echo $$! >/tmp/$(APP_PROD_NAMESPACE)-port-forward.pid; \
 	echo "App (dev):  http://localhost:$(APP_DEV_LOCAL_PORT)"; \
 	echo "App (dev) metrics:  http://localhost:$(APP_DEV_LOCAL_PORT)/metrics"; \
 	echo "App (prod): http://localhost:$(APP_PROD_LOCAL_PORT)"; \
 	echo "App (prod) metrics: http://localhost:$(APP_PROD_LOCAL_PORT)/metrics"
 
-argocd-deploy-apps:
-	@kubectl apply -n argocd -f deploy/argocd/applications.yaml
+monitoring-urls:
+	@kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80 >/tmp/grafana-port-forward.log 2>&1 & \
+	echo $$! >/tmp/grafana-port-forward.pid; \
+	kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090 >/tmp/prometheus-port-forward.log 2>&1 & \
+	echo $$! >/tmp/prometheus-port-forward.pid; \
+	echo "Grafana: http://localhost:3000"; \
+	echo "Prometheus: http://localhost:9090"
 
-
-argocd-sync:
-	@command -v argocd >/dev/null 2>&1 || { echo "argocd CLI not found"; exit 1; }
-	@argocd app sync sre-gitops-apps || true
+# Status / diagnostics
 
 status:
-	@kubectl get ns | grep -E "argocd|web-app-dev|web-app-prod|monitoring" || true
-	@kubectl -n argocd get applications.argoproj.io 2>/dev/null || true
+	@kubectl get ns | grep -E "$(ARGOCD_NAMESPACE)|web-app-dev|web-app-prod|monitoring" || true
+	@kubectl -n "$(ARGOCD_NAMESPACE)" get applications.argoproj.io 2>/dev/null || true
 
-lint:
-	@command -v pre-commit >/dev/null 2>&1 || { echo "pre-commit not found"; exit 1; }
-	@pre-commit run --all-files
-	@helm lint charts/web-app
+# Cleanup
 
-cleanup:
+cleanup-port-forwards:
+	@for f in /tmp/argocd-port-forward.pid /tmp/$(APP_DEV_NAMESPACE)-port-forward.pid /tmp/$(APP_PROD_NAMESPACE)-port-forward.pid /tmp/grafana-port-forward.pid /tmp/prometheus-port-forward.pid; do \
+	  if [[ -f $$f ]]; then kill "$$(cat $$f)" >/dev/null 2>&1 || true; rm -f $$f; fi; \
+	done
 	@rm -f /tmp/argocd-port-forward.log \
 	      /tmp/$(APP_DEV_NAMESPACE)-port-forward.log \
 	      /tmp/$(APP_PROD_NAMESPACE)-port-forward.log \
 	      /tmp/grafana-port-forward.log \
 	      /tmp/prometheus-port-forward.log
+
+cleanup-apps:
 	@kubectl get crd applications.argoproj.io >/dev/null 2>&1 && ( \
 	  kubectl -n "$(ARGOCD_NAMESPACE)" delete application sre-gitops-apps --ignore-not-found; \
 	  kubectl -n "$(ARGOCD_NAMESPACE)" delete application web-app-dev --ignore-not-found; \
 	  kubectl -n "$(ARGOCD_NAMESPACE)" delete application web-app-prod --ignore-not-found; \
 	  kubectl -n "$(ARGOCD_NAMESPACE)" delete application monitoring --ignore-not-found; \
 	) || true
+
+argocd-cleanup-port-forward: cleanup-port-forwards
+
+argocd-cleanup-apps: cleanup-apps
+
+cleanup: cleanup-port-forwards cleanup-apps
 	@kubectl delete namespace "$(APP_DEV_NAMESPACE)" --ignore-not-found
 	@kubectl delete namespace "$(APP_PROD_NAMESPACE)" --ignore-not-found
 	@kubectl delete namespace monitoring --ignore-not-found
+
+# Friendly aliases
+
+bootstrap-kind: k8s-kind-up docker-check k8s-check docker-build-image-local kind-load traefik-install argocd-install argocd-deploy-apps argocd-url
+
+bootstrap-minikube: k8s-minikube-up docker-check k8s-check docker-build-image-local traefik-install argocd-install argocd-deploy-apps argocd-url
+
+up: argocd-deploy-apps
+
+down: cleanup
+
+pf-stop: cleanup-port-forwards
+
+apps-delete: cleanup-apps
+
+# Lint
+
+lint:
+	@command -v pre-commit >/dev/null 2>&1 || { echo "pre-commit not found"; exit 1; }
+	@pre-commit run --all-files
+	@helm lint charts/web-app
