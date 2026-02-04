@@ -4,6 +4,11 @@ image:
 
 replicaCount: 1
 environment: "dev"
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 60
 ingress:
   enabled: true
   className: traefik

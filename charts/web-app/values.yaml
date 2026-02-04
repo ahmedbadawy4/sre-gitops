@@ -10,6 +10,12 @@ replicaCount: 1
 
 environment: "dev"
 
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 60
+
 service:
   type: ClusterIP
   port: 80

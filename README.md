@@ -2,34 +2,47 @@
 
 [![CI](https://github.com/ahmedbadawy4/sre-gitops/actions/workflows/pr-checks.yml/badge.svg)](https://github.com/ahmedbadawy4/sre-gitops/actions/workflows/pr-checks.yml)
 
-Use the Makefile to bootstrap Argo CD, build the app image, and deploy via GitOps.
+This repository demonstrates a reproducible GitOps setup using Argo CD to deploy a simple web application into Kubernetes.
+It focuses on deterministic environments, environment separation (dev/prod), and Git-driven promotion without imperative cluster changes.
 
 ## Architecture (high level)
 
-- Diagram:
-  ```
-  Git Repo (app + Helm)
-            |
-            v
-        Argo CD
-            |
-            v
-   Kubernetes Cluster
-     - web-app-dev
-     - web-app-prod
-  ```
+High-level flow:
+```
+Git Repo (app + Helm)
+          |
+          v
+      Argo CD
+          |
+          v
+ Kubernetes Cluster
+   - web-app-dev
+   - web-app-prod
+```
 
 - Git repo holds application code and Helm chart.
 - Argo CD watches the repo and syncs desired state into the cluster.
 - Two environments (dev/prod) are separated by namespaces and values files.
 
-## Prereqs
-- One Kubernetes option: Docker Desktop, kind, minikube, or an existing cluster
-- `kubectl` + `docker` + `helm` CLIs available
-- Internet access for Argo CD manifest fetch
-- Optional for local linting: `pre-commit` (and `helm` + `hadolint`)
+## What this demonstrates
 
-## Create or select a cluster (first)
+- GitOps deployment using Argo CD (app-of-apps pattern).
+- Pinned, reproducible Kubernetes and Argo CD versions.
+- Dev/Prod separation via namespaces and Helm values.
+- Git-based promotion and rollback.
+- Basic observability and reliability controls.
+
+## Prereqs
+
+Required:
+- One Kubernetes option: Docker Desktop, kind, minikube, or an existing cluster.
+- `kubectl`, `docker`, `helm`.
+- Internet access for Argo CD chart fetch.
+
+Optional:
+- `pre-commit` (and `hadolint`) for local linting.
+
+## Cluster setup (pinned versions)
 
 Choose one of the following so all subsequent steps target the right cluster:
 
@@ -39,12 +52,26 @@ make k8s-minikube-up MINIKUBE_PROFILE=sre-gitops
 make k8s-use-context K8S_CONTEXT=<existing-context>
 ```
 
-Suggested pinned versions (optional):
+Pinned Kubernetes versions (default, overrideable):
 
-- Kind: `make k8s-kind-up KIND_CLUSTER=sre-gitops KIND_NODE_IMAGE=kindest/node:v1.35.0`.
-- Minikube: `make k8s-minikube-up MINIKUBE_PROFILE=sre-gitops MINIKUBE_K8S_VERSION=v1.35.0`.
+- Kind defaults to `KIND_NODE_IMAGE=kindest/node:v1.35.0` (set in `Makefile`).
+- Minikube defaults to `MINIKUBE_K8S_VERSION=v1.35.0` (set in `Makefile`).
+
+You can override these defaults if required for your environment. The defaults are pinned to keep the cluster reproducible and deterministic for reviewers.
 
 ## Quickstart (Makefile-first)
+
+After this section, Argo CD, monitoring, and both environments will be running.
+
+Reviewer-friendly shortcuts:
+
+```bash
+# Kind (build locally + load into kind, no GHCR credentials required).
+make bootstrap-kind
+
+# Minikube (build locally, no GHCR credentials required).
+make bootstrap-minikube
+```
 
 ```bash
 # Verify Docker is installed and running.
@@ -63,11 +90,15 @@ make argocd-deploy-apps
 make argocd-url
 ```
 
-After `argocd-deploy-apps`, the Argo CD Applications view should show all four apps (monitoring, sre-gitops-apps, web-app-dev, web-app-prod) Healthy and Synced:
+## Expected results
+
+Successful setup is indicated by all Argo CD applications being Healthy and Synced, and by the `/version` endpoint returning the expected environment and image tag.
+
+Argo CD Applications should show all four apps (monitoring, sre-gitops-apps, web-app-dev, web-app-prod) Healthy and Synced:
 
 ![Argo CD applications](docs/expected-results/argocd-applications.png)
 
-Port-forward app URLs:
+App URLs (port-forward):
 
 ```bash
 make app-urls
@@ -78,11 +109,9 @@ Web app ingress (default cert):
 - Dev: `https://web-app-dev.local` (add `127.0.0.1 web-app-dev.local` to `/etc/hosts`).
 - Prod: `https://web-app-prod.local` (add `127.0.0.1 web-app-prod.local` to `/etc/hosts`).
 
-After adding the hosts entry and opening the URL in a browser, the dev app page shows Environment: dev, Version: main, and links to `/version` and `/metrics`:
+Expected pages:
 
 ![Web app dev](docs/expected-results/web-app-dev.png)
-
-The prod app page shows Environment: prod, the version from `charts/values-prod.yaml` (e.g. main or a Git tag), and the same endpoints:
 
 ![Web app prod](docs/expected-results/web-app-prod.png)
 
@@ -92,10 +121,8 @@ Monitoring (Grafana + Prometheus):
 make monitoring-urls
 ```
 
-Upstream values reference: `https://github.com/prometheus-community/helm-charts/blob/main/charts/kube-prometheus-stack/values.yaml`
+Grafana login: `admin` / (generated password).
 
-Grafana login: `admin` / (generated password). Import the sample dashboard from `tools/grafana-web-app-dashboard.json`.
-Grafana password (generated):
 ```bash
 kubectl -n monitoring get secret monitoring-grafana \
   -o jsonpath="{.data.admin-password}" | base64 --decode
@@ -103,90 +130,71 @@ kubectl -n monitoring get secret monitoring-grafana \
 
 ## Argo CD access
 
-Local (port-forward):
+Local: `make argocd-url` (port-forward) or `https://argocd.local` via ingress (add `127.0.0.1 argocd.local` to `/etc/hosts`).
 
-```bash
-make argocd-url
-```
+Production outline: use a real DNS name with valid TLS (cert-manager + Let’s Encrypt) and set ingress TLS annotations/hosts in `tools/argocd-values.yaml`.
 
-Local (ingress, default/self-signed cert):
-
-- Requires Traefik (or an ingress class named `traefik`).
-- Add to `/etc/hosts` for Docker Desktop:
-  ```
-  127.0.0.1 argocd.local
-  ```
-- Access: `https://argocd.local` (browser warning is expected).
-- Traefik values can be customized in `tools/traefik-values.yaml`.
-
-### Production (real domain + valid TLS):
-
-- Use a real DNS name, e.g., `argocd.example.com`.
-- Point DNS to your ingress IP / load balancer.
-- Use cert-manager + Let’s Encrypt (recommended) to issue a valid cert.
-  Example (outline):
-
-  ```bash
-  # 1) Install cert-manager (once)
-  kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
-
-  # 2) Create a ClusterIssuer (Let’s Encrypt)
-  kubectl apply -f - <<'YAML'
-  apiVersion: cert-manager.io/v1
-  kind: ClusterIssuer
-  metadata:
-    name: letsencrypt
-  spec:
-    acme:
-      email: you@example.com
-      server: https://acme-v02.api.letsencrypt.org/directory
-      privateKeySecretRef:
-        name: letsencrypt
-      solvers:
-      - http01:
-          ingress:
-            class: traefik
-  YAML
-
-  # 3) Configure Argo CD ingress to request a cert
-  # (set these in tools/argocd-values.yaml)
-  # server:
-  #   ingress:
-  #     annotations:
-  #       cert-manager.io/cluster-issuer: "letsencrypt"
-  #     tls:
-  #       - secretName: argocd-server-tls
-  #         hosts:
-  #           - argocd.example.com
-  ```
-
-## Image build and release (GitOps flow)
+## GitOps promotion and rollback
 
 - On push to `main`, CI builds and pushes `ghcr.io/ahmedbadawy4/sre-gitops:main`.
-- On Git tag push (e.g., `v0.0.1`), CI builds and pushes that tag and the **Release (Prod Tag Update)** workflow updates `charts/values-prod.yaml`.
-
-Notes:
+- On Git tag push (e.g., `v0.0.1`), CI builds and pushes that tag and the release workflow updates `charts/values-prod.yaml`.
 - Argo CD Helm chart version is pinned via `ARGOCD_CHART_VERSION` in `Makefile`.
+
+This approach ensures production changes are auditable, reversible, and driven exclusively through Git history rather than imperative cluster actions.
 
 Rollback (GitOps):
 
 - Revert the commit that bumped `charts/values-*.yaml` and push.
-- Argo CD will sync back to the previous image tag.
+- Argo CD auto-sync will reconcile back to the previous image tag.
+- Validate by checking `argocd app get web-app-prod` (Synced/Healthy), and by hitting the `/version` endpoint to confirm the running version.
+- If a rollout is flapping, pause auto-sync temporarily, fix the values file, then re-enable auto-sync to resume reconciliation.
 
 ## Reliability and security
 
-- Health checks: readiness and liveness probes are configured in the Helm chart.
-- Resource requests/limits: set per environment in `charts/values-*.yaml`.
-- Environment separation: dev/prod use different namespaces and values files.
-- Metrics: `/metrics` endpoint exposes basic Prometheus-style counters.
-- Argo CD RBAC: default policy is readonly, admin is explicitly mapped in `tools/argocd-values.yaml`.
+Reliability:
+- Readiness and liveness probes are configured in the Helm chart.
+- Resource requests/limits are set per environment in `charts/values-*.yaml`.
+- Autoscaling (HPA) is enabled in dev/prod via `autoscaling` values (requires `metrics-server`).
+
+Observability:
+- `/metrics` endpoint exposes basic Prometheus-style counters.
+- Optional monitoring stack is deployed via Argo CD (`kube-prometheus-stack`).
+
+Security:
+- Argo CD RBAC defaults to readonly; admin is explicitly mapped in `tools/argocd-values.yaml`.
+- Argo CD Projects (`web-app-dev`, `web-app-prod`) restrict repos and destinations to enforce environment boundaries.
 - Web app sets basic security headers (CSP, X-Frame-Options, etc.) in `app/httpd.conf`.
+
+Explicit non-goals (for this assignment):
+- Least-privileged service accounts for the app (currently uses the default SA).
+- Secrets management integration (see below).
+
+## Secrets strategy (not implemented)
+
+- App runtime secrets: stored in a secret manager (e.g., AWS Secrets Manager/Vault) and synced via External Secrets; only the `ExternalSecret` manifest lives in Git.
+- CI/CD pipeline secrets: stored in GitHub Actions Secrets; never committed to Git.
+
+Secrets are intentionally excluded to keep the demo focused on GitOps mechanics.
+
+## Production safeguards
+
+- The prod release workflow is gated by the `production` environment in GitHub Actions and requires explicit approval.
+- The production environment is configured to allow deployments only from Git tags to reduce human error.
+
+## Design decisions
+
+- Helm chosen for app templating to keep environment differences explicit and versioned.
+- App-of-apps used to scale environments cleanly under a single Argo CD parent.
+- Git-based promotion chosen over in-cluster automation to keep changes auditable.
+- Defaults are pinned for reproducibility while remaining overrideable for flexibility.
+- No service mesh or progressive delivery tooling (e.g., Argo Rollouts) to keep the scope focused on core GitOps primitives.
 
 ## Assumptions and tradeoffs
 
 - Uses local clusters (kind/minikube/Docker Desktop) for simplicity.
 - Argo CD is installed via Helm to keep installation declarative and reproducible.
 - Image tags are derived from Git tags/commits; pushing a new tag requires a Git update to values files.
+- Argo CD Image Updater is intentionally not used to keep all state changes Git-driven.
 
 ## Private repo credentials (optional)
 
@@ -207,9 +215,9 @@ kubectl -n argocd label secret private-repo \
 
 ```bash
 # Stop local port-forward processes and remove temp pid/log files.
-make argocd-cleanup-port-forward
+make pf-stop
 # Delete Argo CD Application objects so Argo CD stops reconciling them.
-make argocd-cleanup-apps
+make apps-delete
 # Delete only this repo's apps and namespaces (safe for shared clusters).
 make cleanup
 ```
@@ -217,12 +225,11 @@ make cleanup
 ## PR checks and local linting
 
 - GitHub Actions runs Helm lint + YAML checks + Dockerfile lint on pull requests.
-- For local checks:
 
-  ```bash
-  pre-commit install
-  pre-commit run --all-files
-  ```
+```bash
+pre-commit install
+pre-commit run --all-files
+```
 
 Useful targets:
 
@@ -235,13 +242,16 @@ make status
 make lint
 ```
 
+## No UI configuration after bootstrap
+
+- Argo CD installation is via Helm with pinned chart version and values in `tools/argocd-values.yaml`.
+- Applications and projects are defined as YAML in `deploy/argocd/applications.yaml` and `deploy/argocd/apps/*.yaml`.
+- After `make argocd-deploy-apps`, Argo CD continuously syncs from Git with no post-login UI clicks required.
+
 ## TODOs (production hardening)
 
 - Enable SSO or OIDC for Argo CD and disable the default admin user.
-- Add Argo CD repo credentials (only needed for private repos).
-- Store repo credentials in a secret manager (External Secrets/Sealed Secrets).
 - Enforce TLS on Argo CD server and restrict network access (ingress + firewall).
 - Define least-privilege RBAC for users and automation.
-- Add centralized logging and/or alerts for sync failures.
-- Add CI/CD pipeline to build/push images and open PRs to bump image tags.
+- Add centralized logging and alerts for sync failures.
 - Add alerting rules for Prometheus/Grafana.
