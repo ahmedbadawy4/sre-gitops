@@ -153,25 +153,77 @@ argocd-password:
 	fi
 
 argocd-url:
-	@kubectl -n "$(ARGOCD_NAMESPACE)" port-forward svc/argocd-server 8081:443 >/tmp/argocd-port-forward.log 2>&1 & \
-	echo $$! >/tmp/argocd-port-forward.pid; \
+	@pid=/tmp/argocd-port-forward.pid; log=/tmp/argocd-port-forward.log; \
+	if [[ -f $$pid ]]; then \
+	  if kill -0 "$$(cat $$pid)" >/dev/null 2>&1; then \
+	    echo "Argo CD port-forward already running (pid $$(cat $$pid))"; exit 0; \
+	  else \
+	    rm -f $$pid $$log; \
+	  fi; \
+	fi; \
+	kubectl -n "$(ARGOCD_NAMESPACE)" port-forward svc/argocd-server 8081:443 >$$log 2>&1 & \
+	echo $$! > $$pid; \
 	echo "Argo CD UI: https://localhost:8081"
 
 app-urls:
-	@kubectl -n $(APP_DEV_NAMESPACE) port-forward svc/$(APP_SERVICE) $(APP_DEV_LOCAL_PORT):80 >/tmp/$(APP_DEV_NAMESPACE)-port-forward.log 2>&1 & \
-	echo $$! >/tmp/$(APP_DEV_NAMESPACE)-port-forward.pid; \
-	kubectl -n $(APP_PROD_NAMESPACE) port-forward svc/$(APP_SERVICE) $(APP_PROD_LOCAL_PORT):80 >/tmp/$(APP_PROD_NAMESPACE)-port-forward.log 2>&1 & \
-	echo $$! >/tmp/$(APP_PROD_NAMESPACE)-port-forward.pid; \
+	@pid=/tmp/$(APP_DEV_NAMESPACE)-port-forward.pid; log=/tmp/$(APP_DEV_NAMESPACE)-port-forward.log; \
+	if [[ -f $$pid ]]; then \
+	  if kill -0 "$$(cat $$pid)" >/dev/null 2>&1; then \
+	    echo "App dev port-forward already running (pid $$(cat $$pid))"; \
+	  else \
+	    rm -f $$pid $$log; \
+	    kubectl -n $(APP_DEV_NAMESPACE) port-forward svc/$(APP_SERVICE) $(APP_DEV_LOCAL_PORT):80 >$$log 2>&1 & \
+	    echo $$! > $$pid; \
+	  fi; \
+	else \
+	  kubectl -n $(APP_DEV_NAMESPACE) port-forward svc/$(APP_SERVICE) $(APP_DEV_LOCAL_PORT):80 >$$log 2>&1 & \
+	  echo $$! > $$pid; \
+	fi; \
+	pid=/tmp/$(APP_PROD_NAMESPACE)-port-forward.pid; log=/tmp/$(APP_PROD_NAMESPACE)-port-forward.log; \
+	if [[ -f $$pid ]]; then \
+	  if kill -0 "$$(cat $$pid)" >/dev/null 2>&1; then \
+	    echo "App prod port-forward already running (pid $$(cat $$pid))"; \
+	  else \
+	    rm -f $$pid $$log; \
+	    kubectl -n $(APP_PROD_NAMESPACE) port-forward svc/$(APP_SERVICE) $(APP_PROD_LOCAL_PORT):80 >$$log 2>&1 & \
+	    echo $$! > $$pid; \
+	  fi; \
+	else \
+	  kubectl -n $(APP_PROD_NAMESPACE) port-forward svc/$(APP_SERVICE) $(APP_PROD_LOCAL_PORT):80 >$$log 2>&1 & \
+	  echo $$! > $$pid; \
+	fi; \
 	echo "App (dev):  http://localhost:$(APP_DEV_LOCAL_PORT)"; \
 	echo "App (dev) metrics:  http://localhost:$(APP_DEV_LOCAL_PORT)/metrics"; \
 	echo "App (prod): http://localhost:$(APP_PROD_LOCAL_PORT)"; \
 	echo "App (prod) metrics: http://localhost:$(APP_PROD_LOCAL_PORT)/metrics"
 
 monitoring-urls:
-	@kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80 >/tmp/grafana-port-forward.log 2>&1 & \
-	echo $$! >/tmp/grafana-port-forward.pid; \
-	kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090 >/tmp/prometheus-port-forward.log 2>&1 & \
-	echo $$! >/tmp/prometheus-port-forward.pid; \
+	@pid=/tmp/grafana-port-forward.pid; log=/tmp/grafana-port-forward.log; \
+	if [[ -f $$pid ]]; then \
+	  if kill -0 "$$(cat $$pid)" >/dev/null 2>&1; then \
+	    echo "Grafana port-forward already running (pid $$(cat $$pid))"; \
+	  else \
+	    rm -f $$pid $$log; \
+	    kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80 >$$log 2>&1 & \
+	    echo $$! > $$pid; \
+	  fi; \
+	else \
+	  kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80 >$$log 2>&1 & \
+	  echo $$! > $$pid; \
+	fi; \
+	pid=/tmp/prometheus-port-forward.pid; log=/tmp/prometheus-port-forward.log; \
+	if [[ -f $$pid ]]; then \
+	  if kill -0 "$$(cat $$pid)" >/dev/null 2>&1; then \
+	    echo "Prometheus port-forward already running (pid $$(cat $$pid))"; \
+	  else \
+	    rm -f $$pid $$log; \
+	    kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090 >$$log 2>&1 & \
+	    echo $$! > $$pid; \
+	  fi; \
+	else \
+	  kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090 >$$log 2>&1 & \
+	  echo $$! > $$pid; \
+	fi; \
 	echo "Grafana: http://localhost:3000"; \
 	echo "Prometheus: http://localhost:9090"
 
@@ -185,7 +237,13 @@ status:
 
 cleanup-port-forwards:
 	@for f in /tmp/argocd-port-forward.pid /tmp/$(APP_DEV_NAMESPACE)-port-forward.pid /tmp/$(APP_PROD_NAMESPACE)-port-forward.pid /tmp/grafana-port-forward.pid /tmp/prometheus-port-forward.pid; do \
-	  if [[ -f $$f ]]; then kill "$$(cat $$f)" >/dev/null 2>&1 || true; rm -f $$f; fi; \
+	  if [[ -f $$f ]]; then \
+	    pid="$$(cat $$f)"; \
+	    if ps -p "$$pid" -o command= 2>/dev/null | grep -q "kubectl port-forward"; then \
+	      kill "$$pid" >/dev/null 2>&1 || true; \
+	    fi; \
+	    rm -f $$f; \
+	  fi; \
 	done
 	@rm -f /tmp/argocd-port-forward.log \
 	      /tmp/$(APP_DEV_NAMESPACE)-port-forward.log \
@@ -205,12 +263,12 @@ argocd-cleanup-port-forward: cleanup-port-forwards
 
 argocd-cleanup-apps: cleanup-apps
 
-cleanup: cleanup-port-forwards cleanup-apps
+cleanup: argocd-cleanup-port-forward argocd-cleanup-apps
 	@kubectl delete namespace "$(APP_DEV_NAMESPACE)" --ignore-not-found
 	@kubectl delete namespace "$(APP_PROD_NAMESPACE)" --ignore-not-found
 	@kubectl delete namespace monitoring --ignore-not-found
 
-# Friendly aliases
+# Aliases
 
 bootstrap-kind: k8s-kind-up docker-check k8s-check docker-build-image-local kind-load traefik-install argocd-install argocd-deploy-apps argocd-url
 
