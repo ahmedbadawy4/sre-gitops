@@ -32,6 +32,17 @@ Git Repo (app + Helm)
 - Git-based promotion and rollback.
 - Basic observability and reliability controls.
 
+## How to review this repo
+
+Suggested review order:
+1. README (this file) for system intent and workflow.
+2. Makefile for reproducible bootstrap and operational commands.
+3. deploy/argocd/ for GitOps application and project definitions.
+4. charts/ for environment-specific configuration and reliability settings.
+5. .github/workflows/ for CI-driven image build and promotion.
+
+This repository is intentionally scoped to core GitOps mechanics rather than full production hardening.
+
 ## Prereqs
 
 Required:
@@ -62,6 +73,7 @@ You can override these defaults if required for your environment. The defaults a
 ## Quickstart (Makefile-first)
 
 After this section, Argo CD, monitoring, and both environments will be running.
+Expected time to first successful deployment on a local cluster: ~10–15 minutes.
 
 Reviewer-friendly shortcuts:
 
@@ -132,7 +144,7 @@ kubectl -n monitoring get secret monitoring-grafana \
 
 Local: `make argocd-url` (port-forward) or `https://argocd.local` via ingress (add `127.0.0.1 argocd.local` to `/etc/hosts`).
 
-Production outline: use a real DNS name with valid TLS (cert-manager + Let’s Encrypt) and set ingress TLS annotations/hosts in `tools/argocd-values.yaml`.
+For production, use a real DNS name with valid TLS (e.g., cert-manager + Let’s Encrypt) and configure ingress settings in `tools/argocd-values.yaml`.
 
 ## GitOps promotion and rollback
 
@@ -141,6 +153,7 @@ Production outline: use a real DNS name with valid TLS (cert-manager + Let’s E
 - Argo CD Helm chart version is pinned via `ARGOCD_CHART_VERSION` in `Makefile`.
 
 This approach ensures production changes are auditable, reversible, and driven exclusively through Git history rather than imperative cluster actions.
+If a bad image is promoted, the blast radius is limited to the target environment, and recovery is deterministic via Git revert.
 
 Rollback (GitOps):
 
@@ -172,7 +185,6 @@ Explicit non-goals (for this assignment):
 ## Secrets strategy (not implemented)
 
 - App runtime secrets: stored in a secret manager (e.g., AWS Secrets Manager/Vault) and synced via External Secrets; only the `ExternalSecret` manifest lives in Git.
-- CI/CD pipeline secrets: stored in GitHub Actions Secrets; never committed to Git.
 
 Secrets are intentionally excluded to keep the demo focused on GitOps mechanics.
 
